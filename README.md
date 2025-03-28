@@ -1,1 +1,3 @@
 # Strawberries
+
+This is my midterm project on strawberries! The Midterm Strawberries.pdf file has the full project. It is identical to the USDA-NASS strawberries.html document that can be rendered from the USDA-NASS strawberries.qmd document. I did not use a separate functions document; instead, I have them in the quarto document with the echo set to false. I did this because it was easier for me to visualize what functions I had. The data is in strawb_mar6.csv. The document includes a citations section, but to re-iterate, I primarily used the textbook and R cheat sheets to write my code, and need some assistance from stackoverflow to fix some errors. 
