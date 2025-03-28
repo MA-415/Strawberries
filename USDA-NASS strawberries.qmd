@@ -1,0 +1,404 @@
+---
+title: "Midterm Strawberries"
+author: "Michael Hyder"
+format: 
+  html:
+    echo: false
+    warning: false
+    embed-resources: true
+editor: visual
+---
+
+## Introduction:
+
+In this project, I will clean, reorganize, and begin analyzing data related to strawberries in Florida and California. The data proved to be quite messey. As such, I took several steps to bring it to a workable state.
+
+### Data cleaning and organization
+
+Cleaning and organizing data for analysis is an essential skill for data scientists. Serious data analyses must be presented with the data on which the results depend. The credibility of data analysis and modelling depends on the care taken in data preparation and organization.
+
+### Public information/citations
+
+This is information provided to us in class. I used it extensively to think about the scope of the project and what I thought was interesting to look at. I additionally used the help of our textbooks and the various ggplot cheat sheets that exist in the R world. Beyond that, I had some trouble rendering the document and used the help of StackOverFlow which is cited below.
+
+https://stackoverflow.com/questions/42340928/knit-error-object-not-found
+
+[WHO says strawberries may not be so safe for you--2017March16](https://med.news.am/eng/news/13621/who-says-strawberries-may-not-be-so-safe-for-you.html)
+
+[Pesticides + poison gases = cheap, year-round strawberries 2019March20](https://www.ewg.org/foodnews/strawberries.php)
+
+[Multistate Outbreak of Hepatitis A Virus Infections Linked to Fresh Organic Strawberries-2022March5](https://www.cdc.gov/hepatitis/outbreaks/fresh-strawberries-2022/?CDC_AAref_Val=https://www.cdc.gov/hepatitis/outbreaks/2022/hav-contaminated-food/index.htm)
+
+[Strawberry makes list of cancer-fighting foods-2023May31](https://issuu.com/mechlocal/docs/053123_mech_asf/s/25386339)
+
+## What is the question?
+
+These were some general questions offered to help us think about what might be cool in the dataset.
+
+-   Where they are grown? By whom?
+
+-   Are they really loaded with carcinogenic poisons?
+
+-   Are they really good for your health? Bad for your health?
+
+-   Are organic strawberries carriers of deadly diseases?
+
+-   When I go to the market should I buy conventional or organic strawberries?
+
+```{r}
+#| label: load libraries
+#| warning: false
+#| message: false
+
+library(knitr)  
+library(kableExtra)
+library(tidyverse)
+library(stringr)
+```
+
+## Read the file
+
+This is my initial cleaning process. I read teh data and had to separate the Data Item column first. Then, I wanted to tag where the organic, processing, and fresh data was. Unfortunately, there was not much data for these three categories, but later I will do my best to find insights with it. I then wanted to find what chemicals could be interesting (and feasible) to analyze. I removed any rows that did not have a value for the chemicals and found the 5 chemicals that had the most data entries. That is the output below.
+
+```{r}
+#| warning: false
+strawberry <- read_csv("strawb_mar6.csv", show_col_types = FALSE) |>
+  separate_wider_delim(
+    cols = `Data Item`,
+    delim = ",",
+    names = c("Fruit", "Category", "Item", "Metric"),
+    too_many = "merge",
+    too_few = "align_start"
+  ) |>
+  mutate(
+    Value = parse_number(Value),
+    is_organic = str_detect(Category, "ORGANIC"),
+    is_processing = str_detect(Category, "PROCESSING"),
+    is_fresh = str_detect(Category, "FRESH"),
+    is_conventional = !is_organic
+  ) |>
+  filter(
+    !is.na(Value),
+    State %in% c("CALIFORNIA", "FLORIDA")
+  )
+
+chem_data <- strawberry |>
+  filter(str_detect(tolower(`Domain Category`), "fungicide|herbicide|insecticide|fertilizer")) |>
+  filter(!Value %in% c("(D)", NA))
+
+top_3_chems <- chem_data |>
+  count(`Domain Category`, sort = TRUE) |>
+  slice_max(n, n = 3) |>
+  pull(`Domain Category`)
+
+print(top_3_chems)
+```
+
+## Chemicals
+
+I decided to use Novaluron, Captan, and Thiram because they had sufficient data to find real insights and were fairly interesting. Novaluron is an insecticide that is commonly used to remove pests like beetles and catepillars from fruits. It is relatively safe for beneficial insects, such as bees, and has low toxicity to humans. Captan is a fungicide that aims to prevent spores from growing on the surface of foods. It is used on strawberries to prevent mold usually. It is moderately toxic to humans and is classified as a probable human carcinogen. Thiram is another fungicide that is used to prevent seed rot in strawberries. It is moderately toxic to humans and will cause skin and eye itchiness. It is banned for food use in the European Union.
+
+```{r}
+#| warning: false
+strawberry <- read_csv("strawb_mar6.csv", show_col_types = FALSE) |>
+  separate_wider_delim(
+    cols = `Data Item`,
+    delim = ",",
+    names = c("Fruit", "Category", "Item", "Metric"),
+    too_many = "merge",
+    too_few = "align_start"
+  ) |>
+  mutate(
+    Value = parse_number(Value),
+    is_organic = str_detect(Category, "ORGANIC"),
+    is_processing = str_detect(Category, "PROCESSING"),
+    is_fresh = str_detect(Category, "FRESH"),
+    is_conventional = !is_organic
+  ) |>
+  filter(
+    !is.na(Value),
+    State %in% c("CALIFORNIA", "FLORIDA")
+  )
+
+# Filter for NOVALURON, CAPTAN, THIRAM  and clean values
+chem_data <- strawberry |>
+  filter(str_detect(tolower(`Domain Category`), "novaluron|captan|thiram")) |>
+  filter(!Value %in% c("(D)", NA))
+
+# Keep only relevant columns
+chem_clean <- chem_data |>
+  select(Year, State, `Domain Category`, Value)
+
+
+```
+
+Once I found the chemicals I wanted, I created my chem_data table that had all the information regarding specifically these 3 chemicals. Then I removed any unnecessary columns. With that cleaned data, I could now find some relationships!
+
+
+```{r}
+chem_clean <- chem_clean |>
+  mutate(
+    Chemical = case_when(
+      str_detect(`Domain Category`, "NOVALURON") ~ "NOVALURON",
+      str_detect(`Domain Category`, "CAPTAN") ~ "CAPTAN",
+      str_detect(`Domain Category`, "THIRAM ") ~ "THIRAM"
+    )
+  )
+```
+
+```{r}
+# Total use by state
+summary_table_state <- chem_clean |>
+  group_by(Chemical, State) |>
+  summarize(Total_Use = sum(Value, na.rm = TRUE), .groups = "drop")
+
+# Total use by year
+summary_table_year <- chem_clean |>
+  group_by(Chemical, Year) |>
+  summarize(Total_Use = sum(Value, na.rm = TRUE), .groups = "drop")
+```
+
+```{r} 
+#I used kable for the tables like we did in discussion
+summary_table_state |>
+  kable(
+    caption = "Total Use of Each Chemical by State",
+    format = "html",
+    digits = 0,
+    col.names = c("Chemical", "State", "Total Use (lbs)")
+  ) |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+Above is a table of the total amount of each chemical used in each state. Below is a table of the total amount of each chemical used in each year by both states combined. 
+
+```{r}
+summary_table_year |>
+  kable(
+    caption = "Yearly Use of Each Chemical",
+    format = "html",
+    digits = 0,
+    col.names = c("Chemical", "Year", "Total Use (lbs)")
+  ) |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+From the tables, we can make bar and line graphs. This visualizations will tell us the story of the data.
+
+
+```{r}
+#I will use blue of CA and orange for FL going forward
+ggplot(summary_table_state, aes(x = Chemical, y = Total_Use, fill = State)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("CALIFORNIA" = "blue", "FLORIDA" = "orange")) +
+  labs(
+    title = "Total Use of Chemicals by State",
+    y = "Total Use (lbs)",
+    x = NULL
+  ) +
+  theme_minimal()
+```
+
+
+Above it is clear that California (CA) uses significantly more chemicals than Florida (FL). This is because they simply have more land to cover. Interestingly, CA uses a much greater proportion of Captan than FL does. At the same time, FL uses a much higher proportion of Thiram than CA does: FL uses nearly as much Thiram as Captan. This is concerning, as Thiram is a much more dangerous and harmful chemical than Captan. In both states, Novaluron has a significantly lower usage. 
+
+
+```{r}
+ggplot(chem_clean, aes(x = Year, y = Value, color = State)) +
+  stat_summary(fun = sum, geom = "line", linewidth = 1) +
+  facet_wrap(~ Chemical, scales = "free_y") +
+  scale_color_manual(values = c("CALIFORNIA" = "blue", "FLORIDA" = "orange")) +
+  labs(
+    title = "Yearly Use of Chemicals by State",
+    y = "Total Use (lbs)",
+    x = "Year"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+The line chart tells us a very interesting story. For all three chemicals, CA has a significantly larger slope, meaning they are increasing the rate at which they use these chemicals much more drastically than FL. The most surprising finding from this graph however, comes from the Thiram. In 2021, FL actually used more Thiram than CA, despite having much less land to cover. But, by 2023, FL decreased the amount of Thiram it used. This is a great trend as Thiram can be very toxic and minimizing its use makes strawberries all around safer. Unfortunately, CA more than doubled its use of Thiram. This is concerning. The initial bar graph was somewhat deceiving, as it showed FL having a potential Thiram problem, but in reality, CA are the ones who need to restrict the use of Thiram for their strawberries. FL appears to be on the right track with that chemical, however, it may be the case that they are substituting the Thiram with other toxic chemicals that I did not analyze.
+
+## Organic Strawberries by State
+
+Now, we switch our attention to organic strawberries. We would expect CA to produce a larger proportion of organic strawberries, but how much? And what can we say about the market for organic strawberries at fresh markets? These are the questions I will look to answer here.
+
+```{r}
+organic_data <- strawberry |>
+  filter(
+    is_organic,
+    !is.na(Value),
+    State %in% c("CALIFORNIA", "FLORIDA")
+  ) |>
+  select(
+    Year, State, Item, Metric, Value
+  )
+```
+
+```{r}
+organic_cwt <- organic_data |>
+  filter(str_detect(tolower(Item), "cwt") | str_detect(tolower(Metric), "cwt"))
+
+# Rows where the unit is $ (dollar value)
+organic_dollars <- organic_data |>
+  filter(str_detect(Item, "\\$") )
+```
+
+To find these answers, I had to do some tricks with the data. Unfortunately, there was not enough data that had the correct units to solve this problem. However, I had data for the amount of strawberries produced in hundreds of pounds. I additionally had partial information about the price of organic strawberries in each state. With this, I was able to estimate the total sales of strawberries in each state in 2021 (not each data still to get 2023 results). To convert CWT (hundreds of pounds) to dollars, I found where there is CWT in either the item or metric column and added the values of those entries together for each state. Then did the same but with $ instead of CWT. Then, I divided the $ total by the CWT total to find the price per 100 pounds of strawberries. Then, you can multiple this rate by the values in the CWT entries to find the dollar amounts sold. In doing this, I found that in CA the price per 100 pounds was about 110$ where in FL it was about 137$. Perhaps this is because there is more supply in CA.
+
+```{r}
+#I had some issues with this and the render function, eventually it worked but im honestly not sure why it didnt work in the first place
+
+organic_cwt <- organic_cwt |>
+  mutate(Value = parse_number(as.character(Value))) |>
+  filter(!is.na(Value))
+
+organic_dollars <- organic_dollars |>
+  mutate(Value = parse_number(as.character(Value))) |>
+  filter(!is.na(Value))
+
+cwt_summary <- organic_cwt |>
+  group_by(Year, State) |>
+  summarize(total_cwt = sum(Value, na.rm = TRUE), .groups = "drop")
+
+dollar_summary <- organic_dollars |>
+  group_by(Year, State) |>
+  summarize(total_dollars = sum(Value, na.rm = TRUE), .groups = "drop")
+```
+
+```{r}
+price_per_cwt <- left_join(cwt_summary, dollar_summary, by = c("Year", "State")) |>
+  mutate(price_per_cwt = total_dollars / total_cwt)
+
+organic_estimates <- left_join(organic_cwt, price_per_cwt, by = c("Year", "State")) |>
+  mutate(estimated_sales = Value * price_per_cwt)
+
+```
+
+```{r}
+estimated_organic_sales <- organic_estimates |>
+  group_by(Year, State) |>
+  summarize(Estimated_Dollars = sum(estimated_sales, na.rm = TRUE), .groups = "drop")
+
+estimated_organic_sales <- estimated_organic_sales |>
+  mutate(
+    percent = Estimated_Dollars / sum(Estimated_Dollars),
+    label = scales::percent(percent, accuracy = 0.1)
+  )
+
+# Plot
+# The title was getting cut off so I needed to readjust where it was
+ggplot(estimated_organic_sales, aes(x = "", y = Estimated_Dollars, fill = State)) +
+  geom_col() +
+  coord_polar(theta = "y") +
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.5),
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("CALIFORNIA" = "blue", "FLORIDA" = "orange")) +
+  ggtitle("Share of Organic Strawberry Sales by State") +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+The estimated values gave me the result above. Approximately 94.4% of the total organic strawberries from the two states came from CA in 2021. Somewhat amazingly, the exact same proportion of organic strawberries that were sold at fresh markets came from CA. This should mean that CA and FL sell the same proportion of their organic strawberries at fresh markets as they do in grocery stores and other venues. This naturally made me wonder what that percentage was. The final (and I think coolest) finding is inspired by this question and visualized in the last pie chart.
+
+
+```{r}
+#This and the similar code elsewhere is to get the percentages
+fresh_estimates <- organic_estimates |>
+  filter(
+    str_detect(tolower(Item), "fresh")
+  ) |>
+  group_by(State) |>
+  summarize(
+    Estimated_Dollars = sum(estimated_sales, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    percent = Estimated_Dollars / sum(Estimated_Dollars),
+    label = scales::percent(percent, accuracy = 0.1)
+  )
+```
+
+```{r}
+ggplot(fresh_estimates, aes(x = "", y = Estimated_Dollars, fill = State)) +
+  geom_col() +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), color = "white") +
+  scale_fill_manual(values = c("CALIFORNIA" = "blue", "FLORIDA" = "orange")) +
+  ggtitle("Share of Organic Fresh Strawberry Sales by State") +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+
+```{r}
+ca_organic_2021 <- organic_estimates |>
+  filter(State == "CALIFORNIA", Year == 2021)
+
+fresh_sales <- ca_organic_2021 |>
+  filter(str_detect(tolower(Item), "fresh")) |>
+  summarize(fresh_total = sum(estimated_sales, na.rm = TRUE)) |>
+  pull(fresh_total)
+
+total_sales <- ca_organic_2021 |>
+  summarize(total = sum(estimated_sales, na.rm = TRUE)) |>
+  pull(total)
+```
+
+```{r}
+ca_fresh_share <- tibble(
+  Market = c("Fresh Market", "Other Markets"),
+  Sales = c(fresh_sales, total_sales - fresh_sales)
+) |>
+  mutate(
+    percent = Sales / sum(Sales),
+    label = scales::percent(percent, accuracy = 0.1)
+  )
+```
+
+Below is the pie chart showing the organic strawberry sales by market in CA in 2021. The data surrounding the processed markets was severely lacking, but for this dataset, we will just classify the sale as organic or not organic. Remarkabley, CA sells almost exactly 50% of its organic strawberries at fresh markets and 50% with other vendors. I find this incredibly interesting, because as we say in the above pie charts, FL must also sell approximately 50% of its organic strawberries at fresh markets. So, we conclude from these findings that about 50% of all organic strawberries are sold at fresh markets from the two largest strawberries producing states in the US.
+
+
+```{r}
+ggplot(ca_fresh_share, aes(x = "", y = Sales, fill = Market)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.5),
+    color = "white",
+    size = 5
+  ) +
+  scale_fill_manual(values = c("Fresh Market" = "green", "Other Markets" = "red")) +
+  labs(
+    title = "CA Organic Strawberry Sales by Market",  # ← shorter, no clipping
+    fill = "Market"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16)
+  )
+```
+
+## Conclusions
+
+Regarding chemicals, it appears as thought both states use a significant amount of chemicals on their non-organic strawberries, but we can see trends in FL moving away from very toxic chemicals, such as Thiram, and CA moving towards those chemicals. Now knowing what these chemicals are, and their prevelance in the largest strawberry producing states, I would not buy non-organic strawberries. Now looking at organic strawberries, I can see that fresh markets have an equal share of the market with big grocery stores. However, thinking economically, that largely tells me that organic strawberries are not a great return on investment, as if they were, large grocery stores would want a much larger share of the market. After analyzing this data, I can confidently say that I will think twice before buying non-organic strawberries, and may find myself looking for fresh markets to get my fruits!
+
+
